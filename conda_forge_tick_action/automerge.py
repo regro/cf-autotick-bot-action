@@ -35,10 +35,15 @@ def _check_statuses(statuses):
             if status.context not in status_states:
                 # init with really old time
                 status_states[status.context] = (
-                    False,
+                    None,
                     datetime.datetime.now() - datetime.timedelta(weeks=1000))
 
-            if status.state in NEUTRAL_STATES or status.state in BAD_STATES:
+            if status.state in NEUTRAL_STATES:
+                if status.updated_at > status_states[status.context][1]:
+                    status_states[status.context] = (
+                        None,
+                        status.updated_at)
+            elif status.state in BAD_STATES:
                 if status.updated_at > status_states[status.context][1]:
                     status_states[status.context] = (
                         False,
@@ -50,32 +55,39 @@ def _check_statuses(statuses):
                         status.updated_at)
 
     for context, val in status_states.items():
-        LOGGER.info('status: context|good = %s|%s', context, val[0])
+        LOGGER.info('status: name|state = %s|%s', context, val[0])
 
-    if not all(val[0] for val in status_states.values()):
-        return False, "PR has bad status"
-
-    return True, None
+    if len(status_states) == 0:
+        return None, None
+    else:
+        if not all(val[0] for val in status_states.values()):
+            return False, "PR has bad status"
+        else:
+            return True, None
 
 
 def _check_checks(checks):
     check_states = {}
     for check in checks:
-        if (check['name'] not in IGNORED_CHECKS and
-                check['status'] == 'completed'):
-
-            if check['conclusion'] in BAD_STATES:
-                check_states[check['name']] = False
+        if check['name'] not in IGNORED_CHECKS:
+            if check['status'] != 'completed':
+                check_states[check['name']] = None
             else:
-                check_states[check['name']] = True
+                if check['conclusion'] in BAD_STATES:
+                    check_states[check['name']] = False
+                else:
+                    check_states[check['name']] = True
 
     for name, good in check_states.items():
-        LOGGER.info('check: name|good = %s|%s', name, good)
+        LOGGER.info('check: name|state = %s|%s', name, good)
 
-    if not all(v for v in check_states.values()):
-        return False, "PR has failing check"
-
-    return True, None
+    if len(check_states) == 0:
+        return None, None
+    else:
+        if not all(v for v in check_states.values()):
+            return False, "PR has failing check"
+        else:
+            return True, None
 
 
 def _automerge_pr(repo, pr, session):
@@ -97,14 +109,17 @@ def _automerge_pr(repo, pr, session):
     commit = repo.get_commit(pr.head.sha)
     statuses = commit.get_statuses()
     status_res = _check_statuses(statuses)
-    if not status_res[0]:
+    if not status_res[0] and status_res[0] is not None:
         return status_res
 
     # now check checks
     checks = _get_checks(repo, pr, session)
     checks_res = _check_checks(checks.json()['check_runs'])
-    if not checks_res[0]:
+    if not checks_res[0] and checks_res[0] is not None:
         return checks_res
+
+    if checks_res[0] is None and status_res[0] is None:
+        return False, "No checks or statuses have returned success!"
 
     # make sure PR is mergeable and not already merged
     if pr.is_merged():
