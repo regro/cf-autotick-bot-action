@@ -8,27 +8,7 @@ source /opt/conda/etc/profile.d/conda.sh
 
 conda activate base
 
-echo "python: "`which python`
-
-if [[ "$1" != "prod" ]]; then
-    echo " "
-    echo "uninstalling current action..."
-    pip uninstall -y conda_forge_tick_action
-
-    echo " "
-    echo "pulling ref $1 from origin..."
-    rm -rf cf-autotick-bot-action
-    git clone --depth 1 --branch $1 https://github.com/regro/cf-autotick-bot-action.git
-    cd cf-autotick-bot-action
-
-    echo "git info:"
-    git status
-    git log -n 1
-
-    echo " "
-    echo "reinstalling action..."
-    pip install -e .
-fi
+conda info
 
 echo " "
 echo "==================================================================================================="
