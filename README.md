@@ -27,7 +27,7 @@ jobs:
         id: regro-cf-autotick-bot-action
         uses: regro/cf-autotick-bot-action@master
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ## Deployment
