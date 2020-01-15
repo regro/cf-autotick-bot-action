@@ -10,3 +10,5 @@ runs:
   image: 'docker://cfautotickbot/cf-autotick-bot-action:prod'
   args:
     - ${{ inputs.repo-token }}
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
