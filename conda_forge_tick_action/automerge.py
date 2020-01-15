@@ -73,7 +73,7 @@ def _check_statuses(statuses, extra_ignored_statuses=None):
             return True, None
 
 
-def _skip_appveyor():
+def _skip_appveyor(cfg):
     fnames = glob.glob(
         os.path.join(os.environ['GITHUB_WORKSPACE'], '.ci_support', 'win*.yaml')
     )
@@ -83,14 +83,18 @@ def _skip_appveyor():
         return True
 
     # windows is on but maybe we only care about azure?
-    with open(os.path.join(os.environ['GITHUB_WORKSPACE'], 'conda-forge.yml')) as fp:
-        cfg = YAML().load(fp)
-
     # TODO double check what the smithy default is
     if cfg.get('provider', {}).get('win', None) == 'azure':
         return True
 
     return False
+
+
+def _automerge_me(cfg):
+    automerge_me = cfg.get('bot', {}).get('automerge', None)
+    if automerge_me is None:
+        automerge_me = False
+    return automerge_me
 
 
 def _check_checks(checks):
@@ -126,10 +130,18 @@ def _automerge_pr(repo, pr, session):
     if '[bot-automerge]' not in pr.title:
         return False, "PR does not have the '[bot-automerge]' slug in the title"
 
+    # now load the the conda-forge config
+    with open(os.path.join(os.environ['GITHUB_WORKSPACE'], 'conda-forge.yml')) as fp:
+        cfg = YAML().load(fp)
+
+    # can we automerge in this feedstock?
+    if not _automerge_me(cfg):
+        return False, "automated bot merges are turned off for this feedstock"
+
     # now check statuses
     commit = repo.get_commit(pr.head.sha)
     statuses = commit.get_statuses()
-    if _skip_appveyor():
+    if _skip_appveyor(cfg):
         extra_ignored_statuses = [APPVEYOR_STATUS_CONTEXT]
     else:
         extra_ignored_statuses = None

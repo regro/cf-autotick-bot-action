@@ -8,19 +8,6 @@ To use this action, add the following YAML file at `.github/workflows/main.yml`
 
 ```yaml
 on:
-  pull_request:
-    types:
-      - labeled
-      - unlabeled
-      - synchronize
-      - opened
-      - edited
-      - ready_for_review
-      - reopened
-      - unlocked
-  pull_request_review:
-    types:
-      - submitted
   status: {}
   check_run:
     types:
@@ -28,7 +15,6 @@ on:
   # these are commented out for now, but they could not be
   # schedule:
   #   - cron:  '0 * * * *'
-  # push: {}
 
 jobs:
   regro-cf-autotick-bot-action:
