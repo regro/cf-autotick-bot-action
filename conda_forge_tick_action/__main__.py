@@ -28,7 +28,7 @@ def main():
 
     elif event_name in ['pull_request', 'pull_request_review']:
         event_data = event_data['pull_request']
-        repo_name = event_data['head']['repo']['full_name']
+        repo_name = event_data['base']['repo']['full_name']
         pr_num = int(event_data['number'])
 
         repo = gh.get_repo(repo_name)
