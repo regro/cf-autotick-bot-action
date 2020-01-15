@@ -122,7 +122,7 @@ def _automerge_pr(repo, pr, session):
     if pr.user.login not in ALLOWED_USERS:
         return False, "user %s cannot automerge" % pr.user.login
 
-    # only if [automerge] is in the pr title
+    # only if [bot-automerge] is in the pr title
     if '[bot-automerge]' not in pr.title:
         return False, "PR does not have the '[bot-automerge]' slug in the title"
 
