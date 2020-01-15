@@ -45,7 +45,8 @@ RUN echo "**** install dev packages ****" && \
         tini \
         pygithub \
         tenacity \
-        requests && \
+        requests \
+        ruamel.yaml && \
     \
     echo "**** cleanup ****" && \
     rm -rf /var/cache/apk/* && \

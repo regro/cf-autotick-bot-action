@@ -6,6 +6,20 @@ from github import Github
 
 
 def create_api_sessions(github_token):
+    """Create API sessions for GitHub.
+
+    Parameters
+    ----------
+    github_token : str
+        The GitHub access token.
+
+    Returns
+    -------
+    session : requests.Session
+        A `requests` session w/ the beta `check_run` API configured.
+    gh : github.MainClass.Github
+        A `Github` object from the PyGithub package.
+    """
     # based on
     #  https://alexwlchan.net/2019/03/
     #    creating-a-github-action-to-auto-merge-pull-requests/

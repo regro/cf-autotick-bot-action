@@ -1,5 +1,9 @@
+import os
+import glob
 import logging
 import datetime
+
+from ruamel.yaml import YAML
 import tenacity
 
 LOGGER = logging.getLogger(__name__)
@@ -9,9 +13,8 @@ ALLOWED_USERS = [
     'regro-cf-autotick-bot',
 ]
 
-ALLOWED_LABELS = ['automerge']
-
 IGNORED_STATUSES = ['conda-forge-linter']
+APPVEYOR_STATUS_CONTEXT = 'continuous-integration/appveyor/pr'
 IGNORED_CHECKS = ['regro-cf-autotick-bot-action']
 
 NEUTRAL_STATES = ['pending']
@@ -28,31 +31,35 @@ def _get_checks(repo, pr, session):
             repo.full_name, pr.head.sha))
 
 
-def _check_statuses(statuses):
+def _check_statuses(statuses, extra_ignored_statuses=None):
+    extra_ignored_statuses = extra_ignored_statuses or []
+
     status_states = {}
     for status in statuses:
-        if status.context not in IGNORED_STATUSES:
-            if status.context not in status_states:
-                # init with really old time
+        if status.context in IGNORED_STATUSES + extra_ignored_statuses:
+            continue
+
+        if status.context not in status_states:
+            # init with really old time
+            status_states[status.context] = (
+                None,
+                datetime.datetime.now() - datetime.timedelta(weeks=10000))
+
+        if status.state in NEUTRAL_STATES:
+            if status.updated_at > status_states[status.context][1]:
                 status_states[status.context] = (
                     None,
-                    datetime.datetime.now() - datetime.timedelta(weeks=1000))
-
-            if status.state in NEUTRAL_STATES:
-                if status.updated_at > status_states[status.context][1]:
-                    status_states[status.context] = (
-                        None,
-                        status.updated_at)
-            elif status.state in BAD_STATES:
-                if status.updated_at > status_states[status.context][1]:
-                    status_states[status.context] = (
-                        False,
-                        status.updated_at)
-            else:
-                if status.updated_at > status_states[status.context][1]:
-                    status_states[status.context] = (
-                        True,
-                        status.updated_at)
+                    status.updated_at)
+        elif status.state in BAD_STATES:
+            if status.updated_at > status_states[status.context][1]:
+                status_states[status.context] = (
+                    False,
+                    status.updated_at)
+        else:
+            if status.updated_at > status_states[status.context][1]:
+                status_states[status.context] = (
+                    True,
+                    status.updated_at)
 
     for context, val in status_states.items():
         LOGGER.info('status: name|state = %s|%s', context, val[0])
@@ -61,9 +68,29 @@ def _check_statuses(statuses):
         return None, None
     else:
         if not all(val[0] for val in status_states.values()):
-            return False, "PR has bad status"
+            return False, "PR has bad or in progress statuses"
         else:
             return True, None
+
+
+def _skip_appveyor():
+    fnames = glob.glob(
+        os.path.join(os.environ('GITHUB_WORKSPACE'), '.ci_support/win*.yaml')
+    )
+
+    # windows is not on, so skip
+    if len(fnames) == 0:
+        return True
+
+    # windows is on but maybe we only care about azure?
+    with open(os.path.join(os.environ('GITHUB_WORKSPACE'), 'conda-forge.yml')) as fp:
+        cfg = YAML().load(fp)
+
+    # TODO double check what the smithy default is
+    if cfg.get('provider', {}).get('win', None) == 'azure':
+        return True
+
+    return False
 
 
 def _check_checks(checks):
@@ -85,30 +112,31 @@ def _check_checks(checks):
         return None, None
     else:
         if not all(v for v in check_states.values()):
-            return False, "PR has failing check"
+            return False, "PR has failing or in progress checks"
         else:
             return True, None
 
 
 def _automerge_pr(repo, pr, session):
-
     # only allowed users
     if pr.user.login not in ALLOWED_USERS:
         return False, "user %s cannot automerge" % pr.user.login
 
-    # only allowed labels
-    labels = pr.get_labels()
-    has_allowed_label = False
-    for label in labels:
-        if label.name in ALLOWED_LABELS:
-            has_allowed_label = True
-    if not has_allowed_label:
-        return False, "PR does not have an automerge label"
+    # only if [automerge] is in the pr title
+    if '[bot-automerge]' not in pr.title:
+        return False, "PR does not have the '[bot-automerge]' slug in the title"
 
     # now check statuses
     commit = repo.get_commit(pr.head.sha)
     statuses = commit.get_statuses()
-    status_res = _check_statuses(statuses)
+    if _skip_appveyor():
+        extra_ignored_statuses = [APPVEYOR_STATUS_CONTEXT]
+    else:
+        extra_ignored_statuses = None
+    status_res = _check_statuses(
+        statuses,
+        extra_ignored_statuses=extra_ignored_statuses,
+    )
     if not status_res[0] and status_res[0] is not None:
         return status_res
 
@@ -119,7 +147,7 @@ def _automerge_pr(repo, pr, session):
         return checks_res
 
     if checks_res[0] is None and status_res[0] is None:
-        return False, "No checks or statuses have returned success!"
+        return False, "No checks or statuses have returned success"
 
     # make sure PR is mergeable and not already merged
     if pr.is_merged():
@@ -145,6 +173,26 @@ def _automerge_pr(repo, pr, session):
 
 
 def automerge_pr(repo, pr, session):
+    """Possibly automege a PR.
+
+    Parameters
+    ----------
+    repo : github.Repository.Repository
+        A `Repository` object for the given repo from the PyGithub package.
+    pr : github.PullRequest.PullRequest
+        A `PullRequest` object for the given PR from the PuGithhub package.
+    session : requests.Session
+        A `requests` session w/ the correct headers for the GitHub API v3.
+        See `conda_forge_tick_action.api_sessions.create_api_sessions` for
+        details.
+
+    Returns
+    -------
+    did_merge : bool
+        If `True`, the merge was done, `False` if not.
+    reason : str
+        The reason the merge worked or did not work.
+    """
     did_merge, reason = _automerge_pr(repo, pr, session)
 
     if did_merge:
