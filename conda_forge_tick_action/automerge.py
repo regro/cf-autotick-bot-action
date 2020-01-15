@@ -75,7 +75,7 @@ def _check_statuses(statuses, extra_ignored_statuses=None):
 
 def _skip_appveyor():
     fnames = glob.glob(
-        os.path.join(os.environ('GITHUB_WORKSPACE'), '.ci_support/win*.yaml')
+        os.path.join(os.environ['GITHUB_WORKSPACE'], '.ci_support', 'win*.yaml')
     )
 
     # windows is not on, so skip
@@ -83,7 +83,7 @@ def _skip_appveyor():
         return True
 
     # windows is on but maybe we only care about azure?
-    with open(os.path.join(os.environ('GITHUB_WORKSPACE'), 'conda-forge.yml')) as fp:
+    with open(os.path.join(os.environ['GITHUB_WORKSPACE'], 'conda-forge.yml')) as fp:
         cfg = YAML().load(fp)
 
     # TODO double check what the smithy default is
