@@ -13,7 +13,7 @@ def main():
 
     LOGGER.info('making API clients')
 
-    sess, gh = create_api_sessions(os.environ["INPUT_REPO-TOKEN"])
+    sess, gh = create_api_sessions(os.environ["INPUT_GITHUB_TOKEN"])
 
     with open(os.environ["GITHUB_EVENT_PATH"], 'r') as fp:
         event_data = json.load(fp)

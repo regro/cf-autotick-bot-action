@@ -46,7 +46,7 @@ def create_api_sessions(github_token):
 
     # build a github object too
     gh = Github(
-        os.environ["INPUT_REPO-TOKEN"],
+        github_token,
         retry=urllib3.util.retry.Retry(total=10, backoff_factor=0.1))
 
     return sess, gh
