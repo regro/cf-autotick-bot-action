@@ -58,5 +58,5 @@ script:
       pytest -vv conda_forge_tick_action
       command -v run-regro-cf-autotick-bot-action
     else
-      docker built -t test
+      docker build -t test
     fi
