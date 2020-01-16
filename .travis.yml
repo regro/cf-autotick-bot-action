@@ -13,10 +13,6 @@ matrix:
       env: DO_DOCKER_BUILD=1
       name: docker
 
-  allow_failures:
-    - name: docker
-  fast_finish: true
-
 install:
   - |
     if [[ "${DO_DOCKER_BUILD}" == "0" ]]; then
