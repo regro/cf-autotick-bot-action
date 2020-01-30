@@ -27,7 +27,7 @@ def main():
         if event_name == 'status':
             sha = event_data['sha']
         elif event_name == 'check_suite':
-            sha = event_data['head_sha']
+            sha = event_data['check_suite']['head_sha']
 
         repo = gh.get_repo(os.environ['GITHUB_REPOSITORY'])
         for pr in repo.get_pulls():
