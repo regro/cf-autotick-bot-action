@@ -157,7 +157,7 @@ def _ignore_appveyor(cfg):
     return False
 
 
-def _check_pr(pr):
+def _check_pr(pr, cfg):
     if any(label.name == "automerge" for label in pr.get_labels()):
         return True, None
     
@@ -169,18 +169,22 @@ def _check_pr(pr):
     if '[bot-automerge]' not in pr.title:
         return False, "PR does not have the '[bot-automerge]' slug in the title"
 
+    # can we automerge in this feedstock?
+    if not _automerge_me(cfg):
+        return False, "automated bot merges are turned off for this feedstock"
+
     return True, None
 
 
 def _automerge_pr(repo, pr, session):
-    allowed, msg = _check_pr(pr)
+    # load the the conda-forge config
+    with open(os.path.join(os.environ['GITHUB_WORKSPACE'], 'conda-forge.yml')) as fp:
+        cfg = YAML().load(fp)
+
+    allowed, msg = _check_pr(pr, cfg)
 
     if not allowed:
         return False, msg
-
-    # now load the the conda-forge config
-    with open(os.path.join(os.environ['GITHUB_WORKSPACE'], 'conda-forge.yml')) as fp:
-        cfg = YAML().load(fp)
 
     # now check statuses
     commit = repo.get_commit(pr.head.sha)
