@@ -1,6 +1,9 @@
 import os
 import logging
 import datetime
+import tempfile
+import contextlib
+import subprocess
 
 from ruamel.yaml import YAML
 import tenacity
@@ -139,13 +142,61 @@ def _check_github_statuses(statuses, extra_ignored_statuses=None):
             return True
 
 
+# https://stackoverflow.com/questions/6194499/pushd-through-os-system
+@contextlib.contextmanager
+def pushd(new_dir):
+    previous_dir = os.getcwd()
+    os.chdir(new_dir)
+    try:
+        yield
+    finally:
+        os.chdir(previous_dir)
+
+
+def _get_curr_maintainers(feedstock):
+    """get the current maintainers.
+
+    We always pull from master upstream. This important since the list in the
+    branch could have been changed to add new maintainers not yet approved by the
+    current ones.
+    """
+
+    assert feedstock.endswith("-feedstock"), (
+        "The repo '%s' is not a valid feedstock for getting maintainers!" % feedstock
+    )
+    url = "https://github.com/conda-forge/%s.git" % feedstock
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with pushd(tmpdir):
+            subprocess.run(
+                ["git", "clone", url],
+                check=True
+            )
+            assert os.path.exists(os.path.join(feedstock, "recipe", "meta.yaml")), (
+                "Recipe did not clone correctly when getting maintainers!"
+            )
+            with open(os.path.join(feedstock, "recipe", "meta.yaml"), "r") as fp:
+                keep_lines = []
+                skip = True
+                for line in fp.readlines():
+                    if line.startswith("extra:"):
+                        skip = False
+                    if not skip:
+                        keep_lines.append(line)
+    yaml = YAML()
+    meta = yaml.load("".join(keep_lines))
+    return meta.get("extra", {}).get("recipe-maintainers", [])
+
+
 def _check_pr(pr, cfg):
-    if any(label.name == "automerge" for label in pr.get_labels()):
-        return True, None
+    curr_maint = _get_curr_maintainers(os.environ['GITHUB_REPOSITORY'].split('/')[1])
+    all_users = ALLOWED_USERS + curr_maint
 
     # only allowed users
-    if pr.user.login not in ALLOWED_USERS:
+    if pr.user.login not in all_users:
         return False, "user %s cannot automerge" % pr.user.login
+
+    if any(label.name == "automerge" for label in pr.get_labels()):
+        return True, None
 
     # only if [bot-automerge] is in the pr title
     if '[bot-automerge]' not in pr.title:
