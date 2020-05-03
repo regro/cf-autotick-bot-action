@@ -1,6 +1,9 @@
 import os
 import logging
 import datetime
+import subprocess
+import tempfile
+import contextlib
 
 from ruamel.yaml import YAML
 import tenacity
@@ -13,9 +16,6 @@ ALLOWED_USERS = ['regro-cf-autotick-bot']
 # github actions use the check_suite API
 IGNORED_CHECKS = ['github-actions']
 
-# statuses to ignore by default
-IGNORED_STATUSES = []
-
 # sets of states that indicate good / bad / neutral in the github API
 NEUTRAL_STATES = ['pending']
 BAD_STATES = [
@@ -26,15 +26,38 @@ BAD_STATES = [
 GOOD_MERGE_STATES = ["clean", "has_hooks", "unknown", "unstable"]
 
 
+# https://stackoverflow.com/questions/6194499/pushd-through-os-system
+@contextlib.contextmanager
+def pushd(new_dir):
+    previous_dir = os.getcwd()
+    os.chdir(new_dir)
+    try:
+        yield
+    finally:
+        os.chdir(previous_dir)
+
+
+def _get_conda_forge_config(pr):
+    """get the conda-forge.yml from upstream master
+
+    We always do this to make sure we use the maintainer settings and not
+    any from a fork.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        subprocess.run(
+            ["git", "clone", pr.base.repo.clone_url, tmpdir],
+            check=True,
+        )
+        with pushd(tmpdir):
+            with open("conda-forge.yml", "r") as fp:
+                cfg = YAML().load(fp)
+    return cfg
+
+
 def _automerge_me(cfg):
     """Compute if feedstock allows automerges from `conda-forge.yml`"""
     # TODO turn False to True when we default to automerge
     return cfg.get('bot', {}).get('automerge', False)
-
-
-def _get_ignored_statuses(cfg):
-    """Compute statuses to ignore for automerge from conda-forge.yml"""
-    return cfg.get('bot', {}).get('automerge_options', {}).get('ignored_statuses', [])
 
 
 @tenacity.retry(
@@ -46,7 +69,7 @@ def _get_checks(repo, pr, session):
             repo.full_name, pr.head.sha))
 
 
-def _check_github_checks(checks):
+def _get_github_checks(repo, pr, session):
     """Check if all of the checks are ok.
 
     Parameters
@@ -56,10 +79,12 @@ def _check_github_checks(checks):
 
     Returns
     -------
-    state : bool or None
-        The state. `True` if all have passed, `False` if there are
-        any failures or pending checks, `None` if there are no input checks.
+    check_states : dict of bool or None
+        A dictionary mapping each check to its state.
     """
+
+    checks = _get_checks(repo, pr, session)
+
     check_states = {}
     for check in checks:
         name = check['app']['slug']
@@ -75,16 +100,10 @@ def _check_github_checks(checks):
     for name, good in check_states.items():
         LOGGER.info('check: name|state = %s|%s', name, good)
 
-    if len(check_states) == 0:
-        return None
-    else:
-        if not all(v for v in check_states.values()):
-            return False
-        else:
-            return True
+    return check_states
 
 
-def _check_github_statuses(statuses, extra_ignored_statuses=None):
+def _get_github_statuses(repo, pr):
     """Check that the statuses are ok.
 
     Note this function always ignores contexts in `IGNORED_STATUSES`
@@ -99,21 +118,18 @@ def _check_github_statuses(statuses, extra_ignored_statuses=None):
 
     Returns
     -------
-    state : bool or None
-        The state. `True` if all have passed, `False` if there are
-        any failures or pending checks, `None` if there are no input checks.
+    status_states : dict of bool or None
+        A dictionary mapping each status to its state.
     """
     # github emits all of the statuses with a time stamp as events
     # you have to keep the latest one
     # so this is why we compare the times below
 
-    extra_ignored_statuses = extra_ignored_statuses or []
+    commit = repo.get_commit(pr.head.sha)
+    statuses = commit.get_statuses()
 
     status_states = {}
     for status in statuses:
-        if status.context in IGNORED_STATUSES + extra_ignored_statuses:
-            continue
-
         if status.context not in status_states:
             # init with really old time
             status_states[status.context] = (
@@ -139,16 +155,111 @@ def _check_github_statuses(statuses, extra_ignored_statuses=None):
     for context, val in status_states.items():
         LOGGER.info('status: name|state = %s|%s', context, val[0])
 
-    if len(status_states) == 0:
-        return None
+    return {k: v[0] for k, v in status_states.items()}
+
+
+def _circle_is_active():
+    """check if circle is active"""
+    if os.path.exists(".circleci/checkout_merge_commit.sh"):
+        return True
+
+    if os.path.exists(".circleci/fast_finish_ci_pr_build.sh"):
+        return True
+
+    # we now look for this sentinel text
+    #      filters:
+    #        branches:
+    #          ignore:
+    #            - /.*/
+    with open(".circleci/config.yml", "r") as fp:
+        start = True
+        ind = 0
+        sentinels = ["filters:", "branches:", "ignore:", "- /.*/"]
+        found_sentinels = [False] * len(sentinels)
+        for line in fp.readlines():
+            if line.strip() == "filters:":
+                start = True
+            if start and ind < len(sentinels):
+                if line.strip() == sentinels[ind]:
+                    found_sentinels[ind] = True
+                ind += 1
+
+    if all(found_sentinels):
+        return False
     else:
-        if not all(val[0] for val in status_states.values()):
-            return False
-        else:
-            return True
+        return True
+
+
+def _get_required_checks_and_statuses(pr, cfg):
+    """return a list of required statuses and checks"""
+    ignored_statuses = cfg.get(
+        'bot', {}).get(
+            'automerge_options', {}).get(
+                'ignored_statuses', [])
+    required = ["linter"]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        subprocess.run(
+            ["git", "clone", pr.head.repo.clone_url, tmpdir],
+            check=True,
+        )
+        with pushd(tmpdir):
+            subprocess.run(
+                ["git", "checkout", pr.head.sha],
+                check=True,
+            )
+
+            if os.path.exists("appveyor.yml") or os.path.exists(".appveyor.yml"):
+                required.append("appveyor")
+
+            if os.path.exists(".drone.yml"):
+                required.append("drone")
+
+            if os.path.exists(".travis.yml"):
+                required.append("travis")
+
+            if os.path.exists("azure-pipelines.yml"):
+                required.append("azure")
+
+            # smithy writes this config even if circle is off, but we can check
+            # for other things
+            if (
+                os.path.exists(".circleci/config.yml")
+                and _circle_is_active()
+            ):
+                required.append("circle")
+
+    return [
+        r.lower()
+        for r in required
+        if not any(r.lower() in _i for _i in ignored_statuses)
+    ]
+
+
+def _all_statuses_and_checks_ok(
+    status_states, check_states, req_checks_and_states
+):
+    """check all of the required statuses are OK"""
+    final_states = {}
+    for req in req_checks_and_states:
+        final_states[req] = (
+            any(
+                req in k.lower() and v
+                for k, v in status_states.items()
+            )
+            or
+            any(
+                req in k.lower() and v
+                for k, v in check_states.items()
+            )
+        )
+        LOGGER.info('final status: name|state = %s|%s', req, final_states[req])
+
+    return all(v for v in final_states.values()), final_states
 
 
 def _check_pr(pr, cfg):
+    """make sure a PR is ok to automerge"""
     if any(label.name == "automerge" for label in pr.get_labels()):
         return True, None
 
@@ -167,40 +278,73 @@ def _check_pr(pr, cfg):
     return True, None
 
 
-def _automerge_pr(repo, pr, session):
-    # load the the conda-forge config
-    with open(os.path.join(os.environ['GITHUB_WORKSPACE'], 'conda-forge.yml')) as fp:
-        cfg = YAML().load(fp)
+def _comment_on_pr(pr, stats, msg):
+    comment = """\
+Hi! This is the friendly conda-forge automerge bot!
 
+I considered the following status checks when analyzing this PR:
+"""
+    for k, v in stats.items():
+        if v:
+            _v = "passed"
+        elif v is None:
+            _v = "pending"
+        else:
+            _v = "failed"
+        comment = comment + " - **%s**: %s\n" % (k, _v)
+
+    comment = comment + "\n\nThus the PR was %s" % msg
+
+    last_comment = None
+    for cmnt in pr.get_issue_comments():
+        if "Hi! This is the friendly conda-forge automerge bot!" in cmnt.body:
+            last_comment = cmnt
+
+    if last_comment is None:
+        pr.create_issue_comment(comment)
+    else:
+        last_comment.edit(comment)
+
+
+def _automerge_pr(repo, pr, session):
+    cfg = _get_conda_forge_config(pr)
     allowed, msg = _check_pr(pr, cfg)
 
     if not allowed:
         return False, msg
 
-    # now check statuses
-    commit = repo.get_commit(pr.head.sha)
-    statuses = commit.get_statuses()
-    ignored_statuses = _get_ignored_statuses(cfg)
-    status_ok = _check_github_statuses(statuses, ignored_statuses)
-    if not status_ok and status_ok is not None:
-        return False, "PR has failing or pending statuses"
+    # get checks and statuses
+    status_states = _get_github_statuses(repo, pr)
+    check_states = _get_github_checks(repo, pr, session)
 
-    # now check checks
-    checks = _get_checks(repo, pr, session)
-    checks_ok = _check_github_checks(checks.json()['check_suites'])
-    if not checks_ok and checks_ok is not None:
-        return False, "PR has failing or pending checks"
+    # get which ones are required
+    req_checks_and_states = _get_required_checks_and_statuses(pr, cfg)
+    if len(req_checks_and_states) == 0:
+        return False, "At least one status or check must be required"
 
-    # we need to have at least one check
-    if checks_ok is None and status_ok is None:
-        return False, "No checks or statuses have returned success"
+    ok, final_statuses = _all_statuses_and_checks_ok(
+        status_states, check_states, req_checks_and_states
+    )
+    if not ok:
+        _comment_on_pr(pr, final_statuses, "not passing and thus not merged.")
+        return False, "PR has failing or pending statuses/checks"
 
     # make sure PR is mergeable and not already merged
     if pr.is_merged():
         return False, "PR has already been merged"
-    if (pr.mergeable is None or
-            not pr.mergeable or
-            pr.mergeable_state not in GOOD_MERGE_STATES):
+    if (
+        pr.mergeable is None or
+        not pr.mergeable or
+        pr.mergeable_state not in GOOD_MERGE_STATES
+    ):
+        _comment_on_pr(
+            pr,
+            final_statuses,
+            "passing, but not in a mergeable state (mergeable=%s, "
+            "mergeable_state=%s)." % (
+                pr.mergeable, pr.mergeable_state
+            )
+        )
         return False, "PR merge issue: mergeable|mergeable_state = %s|%s" % (
             pr.mergeable, pr.mergeable_state)
 
@@ -211,15 +355,21 @@ def _automerge_pr(repo, pr, session):
         merge_method='merge',
         sha=pr.head.sha)
     if not merge_status.merged:
+        _comment_on_pr(
+            pr,
+            final_statuses,
+            "passing, but could not be merged (error=%s)." % merge_status.message
+        )
         return (
             False,
             "PR could not be merged: message %s" % merge_status.message)
     else:
+        _comment_on_pr(pr, final_statuses, "passing and merged! Have a great day!")
         return True, "all is well :)"
 
 
 def automerge_pr(repo, pr, session):
-    """Possibly automege a PR.
+    """Possibly automerge a PR.
 
     Parameters
     ----------
