@@ -49,6 +49,10 @@ def _get_conda_forge_config(pr):
             check=True,
         )
         with pushd(tmpdir):
+            subprocess.run(
+                ["git", "checkout", pr.base.ref],
+                check=True,
+            )
             with open("conda-forge.yml", "r") as fp:
                 cfg = YAML().load(fp)
     return cfg
@@ -243,19 +247,16 @@ def _all_statuses_and_checks_ok(
     status_states, check_states, req_checks_and_states
 ):
     """check all of the required statuses are OK"""
-    final_states = {}
+    final_states = {r: None for r in req_checks_and_states}
     for req in req_checks_and_states:
-        final_states[req] = (
-            any(
-                req in k.lower() and v
-                for k, v in status_states.items()
-            )
-            or
-            any(
-                req in k.lower() and v
-                for k, v in check_states.items()
-            )
-        )
+        for k in status_states:
+            if req in k.lower():
+                final_states[req] = status_states[k]
+
+        for k in check_states:
+            if req in k.lower():
+                final_states[req] = check_states[k]
+
         LOGGER.info('final status: name|state = %s|%s', req, final_states[req])
 
     return all(v for v in final_states.values()), final_states
@@ -282,6 +283,10 @@ def _check_pr(pr, cfg):
 
 
 def _comment_on_pr(pr, stats, msg):
+    # do not comment if pending
+    if any(v is None for v in stats.values()):
+        return
+
     comment = """\
 Hi! This is the friendly conda-forge automerge bot!
 

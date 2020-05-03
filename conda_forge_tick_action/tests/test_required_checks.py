@@ -12,11 +12,11 @@ def test_all_statuses_and_checks_ok(val):
 
     status_states = {
         "A-ci": val,
-        "b-CI": True,
+        "b-CI": None if not val else True,
         "c-ci": False,
     }
     check_states = {
-        "e-ci": True,
+        "e-ci": None if not val else True,
         "d-ci": True,
         "f-ci": val,
     }
@@ -34,7 +34,7 @@ def test_all_statuses_and_checks_ok(val):
         assert stats == {"a": True, "b-ci": True, "e-c": True, "f-": True}
     else:
         assert not ok
-        assert stats == {"a": False, "b-ci": True, "e-c": True, "f-": False}
+        assert stats == {"a": False, "b-ci": None, "e-c": None, "f-": False}
 
 
 @pytest.mark.parametrize("fname", [
