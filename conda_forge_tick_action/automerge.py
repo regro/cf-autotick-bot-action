@@ -37,6 +37,19 @@ def pushd(new_dir):
         os.chdir(previous_dir)
 
 
+def _run_git_command(*args):
+    try:
+        c = subprocess.run(
+            ["git"] + list(args),
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+    except subprocess.CalledProcessError as e:
+        print(c.stdout)
+        raise e
+
+
 def _get_conda_forge_config(pr):
     """get the conda-forge.yml from upstream master
 
@@ -44,15 +57,9 @@ def _get_conda_forge_config(pr):
     any from a fork.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
-        subprocess.run(
-            ["git", "clone", pr.base.repo.clone_url, tmpdir],
-            check=True,
-        )
+        _run_git_command("clone", pr.base.repo.clone_url, tmpdir)
         with pushd(tmpdir):
-            subprocess.run(
-                ["git", "checkout", pr.base.ref],
-                check=True,
-            )
+            _run_git_command("checkout", pr.base.ref)
             with open("conda-forge.yml", "r") as fp:
                 cfg = YAML().load(fp)
     return cfg
@@ -211,15 +218,9 @@ def _get_required_checks_and_statuses(pr, cfg):
     required = ["linter"]
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        subprocess.run(
-            ["git", "clone", pr.head.repo.clone_url, tmpdir],
-            check=True,
-        )
+        _run_git_command("clone", pr.head.repo.clone_url, tmpdir)
         with pushd(tmpdir):
-            subprocess.run(
-                ["git", "checkout", pr.head.sha],
-                check=True,
-            )
+            _run_git_command("checkout", pr.head.sha)
 
             if os.path.exists("appveyor.yml") or os.path.exists(".appveyor.yml"):
                 required.append("appveyor")
