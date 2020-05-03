@@ -184,7 +184,7 @@ def _circle_is_active():
     #          ignore:
     #            - /.*/
     with open(".circleci/config.yml", "r") as fp:
-        start = True
+        start = False
         ind = 0
         sentinels = ["filters:", "branches:", "ignore:", "- /.*/"]
         found_sentinels = [False] * len(sentinels)
