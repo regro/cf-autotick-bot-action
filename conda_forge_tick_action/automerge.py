@@ -246,7 +246,7 @@ def _get_required_checks_and_statuses(pr, cfg):
 def _all_statuses_and_checks_ok(
     status_states, check_states, req_checks_and_states
 ):
-    """check all of the required statuses are OK"""
+    """check all of the required statuses are OK and return their states"""
     final_states = {r: None for r in req_checks_and_states}
     for req in req_checks_and_states:
         for k in status_states:
