@@ -68,9 +68,14 @@ def _automerge_me(cfg):
     stop=tenacity.stop_after_attempt(10),
     wait=tenacity.wait_random_exponential(multiplier=0.1))
 def _get_checks(repo, pr, session):
-    return session.get(
-        "https://api.github.com/repos/%s/commits/%s/check-suites" % (
-            repo.full_name, pr.head.sha))
+    return (
+        session
+        .get(
+            "https://api.github.com/repos/%s/commits/%s/check-suites" % (
+                repo.full_name, pr.head.sha)
+        )
+        .json()['check_suites']
+    )
 
 
 def _get_github_checks(repo, pr, session):
