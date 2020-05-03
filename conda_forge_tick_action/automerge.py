@@ -254,14 +254,24 @@ def _all_statuses_and_checks_ok(
     """check all of the required statuses are OK and return their states"""
     final_states = {r: None for r in req_checks_and_states}
     for req in req_checks_and_states:
-        for k in status_states:
+        found_state = False
+        for k, s in status_states.items():
             if req in k.lower():
-                final_states[req] = status_states[k]
+                if not found_state:
+                    found_state = True
+                    state = s
+                else:
+                    state = state and s
 
-        for k in check_states:
+        for k, s in check_states.items():
             if req in k.lower():
-                final_states[req] = check_states[k]
+                if not found_state:
+                    found_state = True
+                    state = s
+                else:
+                    state = state and s
 
+        final_states[req] = None if not found_state else state
         LOGGER.info('final status: name|state = %s|%s', req, final_states[req])
 
     return all(v for v in final_states.values()), final_states

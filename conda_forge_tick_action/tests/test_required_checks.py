@@ -17,6 +17,8 @@ def test_all_statuses_and_checks_ok(val):
     }
     check_states = {
         "e-ci": None if not val else True,
+        "e-ci-1": False if not val else True,
+        "e-ci-2": True if not val else True,
         "d-ci": True,
         "f-ci": val,
     }

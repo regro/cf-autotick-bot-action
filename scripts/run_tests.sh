@@ -16,8 +16,8 @@ export CONDA_SMITHY_LOGLEVEL=DEBUG
 # popd
 
 pushd cf-autotick-bot-test-package-feedstock
-for linux in circle travis azure; do
-  for osx in azure; do
+for linux in circle; do
+  for osx in circle; do
     python ../make_prs.py ${linux} ${osx} $1 $2
   done
 done
