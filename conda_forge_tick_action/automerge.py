@@ -70,12 +70,18 @@ def _get_checks(repo, pr, session):
 
 
 def _get_github_checks(repo, pr, session):
-    """Check if all of the checks are ok.
+    """Get all of the github checks associated with a PR.
 
     Parameters
     ----------
-    checks : list of dicts
-        A list of the check json blobs as dicts.
+    repo : github.Repository.Repository
+        A `Repository` object for the given repo from the PyGithub package.
+    pr : github.PullRequest.PullRequest
+        A `PullRequest` object for the given PR from the PuGithhub package.
+    session : requests.Session
+        A `requests` session w/ the correct headers for the GitHub API v3.
+        See `conda_forge_tick_action.api_sessions.create_api_sessions` for
+        details.
 
     Returns
     -------
@@ -104,17 +110,14 @@ def _get_github_checks(repo, pr, session):
 
 
 def _get_github_statuses(repo, pr):
-    """Check that the statuses are ok.
-
-    Note this function always ignores contexts in `IGNORED_STATUSES`
-    which typically includes 'conda-forge-linter'.
+    """Get all of the github statuses associated with a PR.
 
     Parameters
     ----------
-    statuses : iterable of `github.CommitStatus.CommitStatus`
-        An iterable of statuses.
-    extra_ignored_statuses : list of str
-        A list of status context values to also ignore.
+    repo : github.Repository.Repository
+        A `Repository` object for the given repo from the PyGithub package.
+    pr : github.PullRequest.PullRequest
+        A `PullRequest` object for the given PR from the PuGithhub package.
 
     Returns
     -------
