@@ -366,7 +366,7 @@ def _automerge_pr(repo, pr, session):
         status_states, check_states, req_checks_and_states
     )
     if not ok:
-        _comment_on_pr(pr, final_statuses, "not passing and not merged.", check_race=10)
+        _comment_on_pr(pr, final_statuses, "not passing and not merged.", check_race=2)
         return False, "PR has failing or pending statuses/checks"
 
     # make sure PR is mergeable and not already merged
@@ -384,7 +384,7 @@ def _automerge_pr(repo, pr, session):
             "mergeable_state=%s)." % (
                 pr.mergeable, pr.mergeable_state
             ),
-            check_race=10,
+            check_race=2,
         )
         return False, "PR merge issue: mergeable|mergeable_state = %s|%s" % (
             pr.mergeable, pr.mergeable_state)
@@ -400,7 +400,7 @@ def _automerge_pr(repo, pr, session):
             pr,
             final_statuses,
             "passing, but could not be merged (error=%s)." % merge_status.message,
-            check_race=10,
+            check_race=2,
         )
         return (
             False,
