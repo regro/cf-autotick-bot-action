@@ -17,8 +17,6 @@ export CONDA_SMITHY_LOGLEVEL=DEBUG
 
 pushd cf-autotick-bot-test-package-feedstock
 
-python ../make_no_merge.py azure azure $1 $2
-
 python ../make_no_merge_user.py azure azure $1 $2
 
 python ../make_no_linter.py azure azure $1 $2
