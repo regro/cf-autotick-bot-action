@@ -4,6 +4,8 @@ import datetime
 import subprocess
 import tempfile
 import contextlib
+import time
+import random
 
 from ruamel.yaml import YAML
 import tenacity
@@ -298,7 +300,7 @@ def _check_pr(pr, cfg):
     return True, None
 
 
-def _comment_on_pr(pr, stats, msg):
+def _comment_on_pr(pr, stats, msg, check_race=1):
     # do not comment if pending
     if any(v is None for v in stats.values()):
         return
@@ -319,10 +321,24 @@ I considered the following status checks when analyzing this PR:
 
     comment = comment + "\n\nThus the PR was %s" % msg
 
+    # the times at which PR statuses return are correlated and so this code
+    # can race when posting failures
+    # thus we can turn up check_race to say 10
+    # in that case to try and randomize to avoid double posting comments
+    # I considered using app slugs (e.g. require the failed check to be triggered
+    # by the same app as a failed one in the final statuses). However, some apps
+    # post more than one message (e.g., circle) so that would not work if they both
+    # fail.
+    # I also thought about using timestamps, but github check events don't come
+    # with one.
     last_comment = None
-    for cmnt in pr.get_issue_comments():
-        if "Hi! This is the friendly conda-forge automerge bot!" in cmnt.body:
-            last_comment = cmnt
+    i = 0
+    while last_comment is None and i < check_race:
+        for cmnt in pr.get_issue_comments():
+            if "Hi! This is the friendly conda-forge automerge bot!" in cmnt.body:
+                last_comment = cmnt
+        time.sleep(random.uniform(0.5, 1.5))
+        i += 1
 
     if last_comment is None:
         pr.create_issue_comment(comment)
@@ -350,7 +366,7 @@ def _automerge_pr(repo, pr, session):
         status_states, check_states, req_checks_and_states
     )
     if not ok:
-        _comment_on_pr(pr, final_statuses, "not passing and thus not merged.")
+        _comment_on_pr(pr, final_statuses, "not passing and not merged.", check_race=10)
         return False, "PR has failing or pending statuses/checks"
 
     # make sure PR is mergeable and not already merged
@@ -367,7 +383,8 @@ def _automerge_pr(repo, pr, session):
             "passing, but not in a mergeable state (mergeable=%s, "
             "mergeable_state=%s)." % (
                 pr.mergeable, pr.mergeable_state
-            )
+            ),
+            check_race=10,
         )
         return False, "PR merge issue: mergeable|mergeable_state = %s|%s" % (
             pr.mergeable, pr.mergeable_state)
@@ -382,13 +399,16 @@ def _automerge_pr(repo, pr, session):
         _comment_on_pr(
             pr,
             final_statuses,
-            "passing, but could not be merged (error=%s)." % merge_status.message
+            "passing, but could not be merged (error=%s)." % merge_status.message,
+            check_race=10,
         )
         return (
             False,
             "PR could not be merged: message %s" % merge_status.message)
     else:
-        _comment_on_pr(pr, final_statuses, "passing and merged! Have a great day!")
+        # use a smaller check_race here to make sure this one is prompt
+        _comment_on_pr(
+            pr, final_statuses, "passing and merged! Have a great day!", check_race=2)
         return True, "all is well :)"
 
 
