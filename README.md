@@ -1,3 +1,5 @@
+# DEPRECATED - dev has moved to `conda-forge/automerge-action`
+
 # regro-cf-autotick-bot-action
 [![Build Status](https://travis-ci.com/regro/cf-autotick-bot-action.svg?branch=master)](https://travis-ci.com/regro/cf-autotick-bot-action)
 
